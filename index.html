@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🤖 AI小助手 (檔案選取分析版)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:"Microsoft JhengHei","Segoe UI",sans-serif;height:100vh;overflow:hidden;background:#f0f4f8}
+.app-container{display:flex;height:100vh}
+.sidebar{width:320px;min-width:320px;background:#2B3A42;display:flex;flex-direction:column;overflow-y:auto;flex-shrink:0}
+.sidebar::-webkit-scrollbar{width:6px}
+.sidebar::-webkit-scrollbar-thumb{background:#5D6D7E;border-radius:3px}
+.sidebar-title{color:#3498DB;font-size:22px;font-weight:bold;text-align:center;padding:25px 20px 20px}
+.sidebar-section{padding:5px 20px}
+.sidebar-label{color:#BDC3C7;font-size:12px;font-weight:bold;margin-bottom:4px;display:block}
+.sidebar-input{width:100%;padding:10px 12px;border:2px solid #3498DB;border-radius:6px;background:#fff;font-size:13px;outline:none;margin-bottom:8px;transition:border-color .2s}
+.sidebar-input:focus{border-color:#2980B9}
+.sidebar-select{width:100%;padding:10px 12px;border:2px solid #3498DB;border-radius:6px;background:#fff;font-size:13px;outline:none;margin-bottom:8px;cursor:pointer;appearance:auto}
+.sidebar-btn{width:100%;padding:10px;border:none;border-radius:6px;font-size:13px;font-weight:bold;cursor:pointer;margin-bottom:6px;transition:opacity .2s;color:#fff}
+.sidebar-btn:hover{opacity:.85}
+.main-area{flex:1;display:flex;flex-direction:column;min-width:0}
+.chat-display{flex:1;overflow-y:auto;padding:20px;background:#FAFAFA;margin:20px 20px 5px;border-radius:12px}
+.chat-display::-webkit-scrollbar{width:8px}
+.chat-display::-webkit-scrollbar-thumb{background:#BDC3C7;border-radius:4px}
+.chat-msg{font-size:14px;line-height:1.7;color:#1a1a1a;white-space:pre-wrap;word-wrap:break-word}
+.chat-msg.user{margin-bottom:8px}
+.chat-msg.user::before{content:"👤 你: ";font-weight:bold}
+.chat-msg.ai{margin-bottom:4px}
+.chat-msg.system{color:#7F8C8D;font-size:13px;margin:4px 0;border-top:1px dashed #ddd;padding-top:4px}
+.chat-sep{border:none;border-top:1px dashed #ccc;margin:4px 0}
+.status-bar{display:flex;align-items:center;padding:10px 20px;margin:0 20px;background:#E8F4FD;border-radius:10px;gap:10px}
+.status-icon{font-size:16px}
+.status-text{flex:1;font-size:12px;color:#5D6D7E}
+.status-text.loaded{color:#27AE60}
+.input-area{display:flex;align-items:center;padding:10px 20px;margin:5px 20px 20px;background:#F0F4F8;border-radius:15px;gap:10px}
+.input-btn{white-space:nowrap;padding:10px 16px;border:none;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;color:#fff;transition:opacity .2s}
+.input-btn:hover{opacity:.85}
+.input-field{flex:1;padding:12px 16px;border:2px solid #BDC3C7;border-radius:8px;font-size:14px;outline:none;transition:border-color .2s;font-family:inherit}
+.input-field:focus{border-color:#3498DB}
+.modal-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.4);z-index:1000;justify-content:center;align-items:center}
+.modal-overlay.active{display:flex}
+.modal{background:#fff;border-radius:16px;width:90%;max-width:860px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3);overflow:hidden}
+.modal.small{max-width:520px}
+.modal-header{display:flex;align-items:center;justify-content:space-between;padding:16px 24px;border-bottom:1px solid #eee}
+.modal-header h2{font-size:16px}
+.modal-close{background:none;border:none;font-size:24px;cursor:pointer;color:#999;padding:4px 8px;border-radius:4px}
+.modal-close:hover{background:#f0f0f0;color:#333}
+.modal-body{flex:1;overflow-y:auto;padding:20px 24px}
+.modal-footer{padding:12px 24px;border-top:1px solid #eee;display:flex;justify-content:space-between;align-items:center}
+.file-item{display:flex;align-items:center;padding:12px 16px;margin:4px 0;background:#fff;border:1px solid #BDC3C7;border-radius:8px;gap:12px}
+.file-item:hover{border-color:#3498DB}
+.file-checkbox{width:18px;height:18px;accent-color:#3498DB;cursor:pointer}
+.file-icon{font-size:20px}
+.file-name{flex:1;font-weight:bold;color:#2C3E50;font-size:13px}
+.file-size{color:#7F8C8D;font-size:12px;font-family:Consolas,monospace;white-space:nowrap}
+.file-del{background:#E74C3C;border:none;color:#fff;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px;transition:background .2s}
+.file-del:hover{background:#C0392B}
+.template-item{display:flex;align-items:center;padding:10px 16px;margin:3px 0;background:#fff;border:1px solid #BDC3C7;border-radius:6px;cursor:pointer;transition:background .2s;font-size:13px}
+.template-item:hover{background:#EBF5FB;border-color:#9B59B6}
+.empty-state{text-align:center;padding:40px 20px;color:#95A5A6}
+.empty-state .big-icon{font-size:48px;margin-bottom:12px}
+.empty-state p{margin:4px 0}
+.progress-wrap{width:200px;height:6px;background:#ddd;border-radius:3px;overflow:hidden;display:none;margin-left:auto}
+.progress-wrap.active{display:block}
+.progress-bar{height:100%;background:#3498DB;border-radius:3px;width:0%;transition:width .3s}
+.toast{position:fixed;top:20px;right:20px;padding:14px 24px;border-radius:10px;color:#fff;font-size:14px;z-index:2000;opacity:0;transform:translateY(-20px);transition:all .4s;max-width:400px}
+.toast.show{opacity:1;transform:translateY(0)}
+.toast.success{background:#27AE60}
+.toast.error{background:#E74C3C}
+.toast.info{background:#3498DB}
+</style>
+</head>
+<body>
+<div class="app-container">
+<aside class="sidebar" id="sidebar">
+<div class="sidebar-title">⚙️ AI 設定面板</div>
+<div class="sidebar-section">
+<span class="sidebar-label">🔌 API 類型:</span>
+<select class="sidebar-select" id="apiType" style="background:#34495E;color:#fff;border-color:#3498DB">
+<option>本地 API</option>
+<option>遠程 API</option>
+<option>Google Gemini</option>
+</select>
+</div>
+<div class="sidebar-section">
+<span class="sidebar-label">🌐 API 網址:</span>
+<input class="sidebar-input" id="apiUrl" value="https://unpurged-tamed-lois.ngrok-free.dev/v1">
+</div>
+<div class="sidebar-section">
+<span class="sidebar-label">🔑 API 金鑰:</span>
+<input class="sidebar-input" id="apiKey" type="password" value="lm-studio">
+</div>
+<div class="sidebar-section">
+<span class="sidebar-label">🤖 選擇模型:</span>
+<select class="sidebar-select" id="modelSelector" style="background:#34495E;color:#fff;border-color:#9B59B6"><option>請先測試連線...</option></select>
+</div>
+<div class="sidebar-section">
+<span class="sidebar-label">📝 快速模板:</span>
+<select class="sidebar-select" id="templateSelector" style="background:#34495E;color:#fff;border-color:#E67E22"><option>選擇模板...</option></select>
+</div>
+<div class="sidebar-section">
+<button class="sidebar-btn" id="manageTemplateBtn" style="background:#16A085">⚙️ 管理模板</button>
+</div>
+<div class="sidebar-section" style="margin-top:8px">
+<button class="sidebar-btn" id="updateBtn" style="background:#2980B9">🔄 更新並測試連線</button>
+<button class="sidebar-btn" id="saveBtn" style="background:#27AE60">💾 儲存設定</button>
+<button class="sidebar-btn" id="clearBtn" style="background:#C0392B">🗑️ 清除對話與檔案</button>
+</div>
+</aside>
+
+<main class="main-area">
+<div class="chat-display" id="chatDisplay"></div>
+<div class="status-bar" id="statusBar">
+<span class="status-icon" id="statusIcon">📄</span>
+<span class="status-text" id="statusText">無附加文件</span>
+<div class="progress-wrap" id="progressWrap"><div class="progress-bar" id="progressBar"></div></div>
+</div>
+<div class="input-area">
+<button class="input-btn" id="fileBtn" style="background:#27AE60">📁 分析檔案管理</button>
+<input class="input-field" id="userInput" type="text" placeholder="輸入訊息..." autocomplete="off">
+<button class="input-btn" id="sendBtn" style="background:#3498DB">🚀 傳送</button>
+</div>
+</main>
+</div>
+
+<div class="modal-overlay" id="fileModal">
+<div class="modal">
+<div class="modal-header" style="background:#3498DB;color:#fff;border-radius:16px 16px 0 0">
+<h2>📋 勾選要分析的檔案:</h2>
+<div style="display:flex;gap:10px;align-items:center">
+<button class="input-btn" id="fileAddBtn" style="background:#27AE60;padding:6px 14px;font-size:12px">➕ 增加新檔案</button>
+<button class="modal-close" id="fileModalClose" style="color:#fff">✕</button>
+</div>
+</div>
+<div class="modal-body" id="fileList"></div>
+<div class="modal-footer" id="fileFooter" style="background:#E8F4FD"><span id="fileSummary">📊 總計檔案: 0</span></div>
+</div>
+</div>
+
+<div class="modal-overlay" id="templateModal">
+<div class="modal small">
+<div class="modal-header" style="background:#9B59B6;color:#fff;border-radius:16px 16px 0 0">
+<h2>📝 管理問題模板</h2>
+<button class="modal-close" id="templateModalClose" style="color:#fff">✕</button>
+</div>
+<div class="modal-body">
+<span class="sidebar-label" style="color:#2C3E50">🏷️ 模板名稱:</span>
+<input class="sidebar-input" id="templateName" placeholder="例如：內容摘要">
+<span class="sidebar-label" style="color:#2C3E50;margin-top:8px">📄 模板內容:</span>
+<textarea class="sidebar-input" id="templateContent" rows="6" style="resize:vertical;font-family:inherit;height:140px" placeholder="輸入模板內容..."></textarea>
+<div style="display:flex;gap:10px;margin:10px 0">
+<button class="sidebar-btn" id="templateSaveBtn" style="background:#27AE60;flex:1">💾 儲存 / 新增</button>
+<button class="sidebar-btn" id="templateDelBtn" style="background:#E74C3C;flex:1">🗑️ 刪除</button>
+</div>
+<span class="sidebar-label" style="color:#9B59B6;margin-top:8px">已儲存的模板</span>
+<div id="templateList"></div>
+</div>
+</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+const DEFAULT_CONFIG = {
+  local: { api_base_url: "https://unpurged-tamed-lois.ngrok-free.dev/v1", api_key: "lm-studio" },
+  remote: { api_base_url: "https://api.deepseek.com/v1", api_key: "" },
+  google: { api_base_url: "https://generativelanguage.googleapis.com", api_key: "" },
+  system_prompt: "你是一個專業的助理，請使用繁體中文回答。你可以閱讀我提供的完整文件內容並進行深度分析。",
+  timeout: 600.0
+};
+
+const state = {
+  apiProvider: "openai",
+  apiType: "本地 API",
+  attachedFiles: [],
+  fullDocumentContent: "",
+  isGenerating: false,
+  stopRequested: false,
+  abortController: null
+};
+
+async function fetchConfigFromFile() {
+  try {
+    const resp = await fetch("config.json");
+    if (resp.ok) {
+      const data = await resp.json();
+      localStorage.setItem("ai_doc_config", JSON.stringify(data));
+      return data;
+    }
+  } catch(e) {}
+  return null;
+}
+
+function loadConfig() {
+  try {
+    const raw = localStorage.getItem("ai_doc_config");
+    if (raw) {
+      const saved = JSON.parse(raw);
+      for (const k of ["local","remote","google"]) {
+        saved[k] = { ...DEFAULT_CONFIG[k], ...(saved[k]||{}) };
+      }
+      return saved;
+    }
+  } catch(e) {}
+  return JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+}
+
+function saveConfigToDisk() {
+  const providerMap = { "本地 API":"local", "遠程 API":"remote", "Google Gemini":"google" };
+  const provider = providerMap[state.apiType] || "local";
+  const config = loadConfig();
+  config[provider] = {
+    api_base_url: document.getElementById("apiUrl").value.trim(),
+    api_key: document.getElementById("apiKey").value.trim()
+  };
+  config.system_prompt = DEFAULT_CONFIG.system_prompt;
+  config.timeout = DEFAULT_CONFIG.timeout;
+  localStorage.setItem("ai_doc_config", JSON.stringify(config));
+  showToast("success", `${state.apiType} 設定已儲存`);
+}
+
+async function fetchTemplatesFromFile() {
+  try {
+    const resp = await fetch("templates.json");
+    if (resp.ok) {
+      const data = await resp.json();
+      localStorage.setItem("ai_doc_templates", JSON.stringify(data));
+      return data;
+    }
+  } catch(e) {}
+  return null;
+}
+
+function loadTemplates() {
+  try {
+    const raw = localStorage.getItem("ai_doc_templates");
+    if (raw) return JSON.parse(raw);
+  } catch(e) {}
+  return { "內容摘要": "請為這份文件做摘要。", "關鍵字提取": "請列出 5 個關鍵字。" };
+}
+
+function saveTemplates(templates) {
+  state.templates = templates;
+  localStorage.setItem("ai_doc_templates", JSON.stringify(templates));
+  const names = Object.keys(templates).sort();
+  const sel = document.getElementById("templateSelector");
+  sel.innerHTML = '<option>選擇模板...</option>' + names.map(n => `<option>${escapeHtml(n)}</option>`).join('');
+}
+
+function escapeHtml(t){return String(t).replace(/[&<>"]/g,function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]||m})}
+
+// ---- Toast ----
+let toastTimer = null;
+function showToast(type, msg) {
+  const el = document.getElementById("toast");
+  el.className = "toast " + type;
+  el.textContent = msg;
+  el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 3000);
+}
+
+// ---- Chat ----
+function appendChat(text, sender) {
+  const el = document.getElementById("chatDisplay");
+  const div = document.createElement("div");
+  div.className = "chat-msg " + sender;
+  if (sender === "user") {
+    div.textContent = text;
+  } else {
+    div.innerHTML = text;
+  }
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+}
+
+function appendChatRaw(html) {
+  const el = document.getElementById("chatDisplay");
+  const div = document.createElement("div");
+  div.className = "chat-msg ai";
+  div.innerHTML = html;
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+  return div;
+}
+
+function getLastAiBlock() {
+  const el = document.getElementById("chatDisplay");
+  const kids = el.children;
+  for (let i = kids.length - 1; i >= 0; i--) {
+    if (kids[i].classList.contains("ai")) return kids[i];
+  }
+  return null;
+}
+
+// ---- File Management ----
+function syncFilesToContent() {
+  let combined = "", selectedCount = 0, chars = 0;
+  for (const f of state.attachedFiles) {
+    if (f.selected !== false) {
+      combined += `\n--- ${f.name} ---\n${f.content}\n`;
+      selectedCount++;
+      chars += f.content.length;
+    }
+  }
+  state.fullDocumentContent = combined;
+  const icon = document.getElementById("statusIcon");
+  const text = document.getElementById("statusText");
+  if (chars > 0) {
+    text.textContent = `✅ 已載入 ${selectedCount} 個檔案 (共 ${chars} 字)`;
+    text.className = "status-text loaded";
+    icon.textContent = "📚";
+  } else {
+    text.textContent = "📄 無附加文件";
+    text.className = "status-text";
+    icon.textContent = "📄";
+  }
+}
+
+function readFileAsText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => resolve(e.target.result);
+    reader.onerror = e => reject(e.target.error);
+    reader.readAsText(file, "UTF-8");
+  });
+}
+
+async function readPdfAsText(file) {
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  let text = "";
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const tc = await page.getTextContent();
+    text += tc.items.map(it => it.str).join(" ") + "\n";
+  }
+  return text;
+}
+
+async function handleFileSelect(fileList) {
+  const newFiles = [];
+  const total = fileList.length;
+  const pw = document.getElementById("progressWrap");
+  const pb = document.getElementById("progressBar");
+  pw.classList.add("active");
+  for (let i = 0; i < total; i++) {
+    const file = fileList[i];
+    pb.style.width = ((i + 1) / total * 100) + "%";
+    document.getElementById("statusText").textContent = `正在讀取 (${i+1}/${total}): ${file.name}`;
+    try {
+      let content = "";
+      const lower = file.name.toLowerCase();
+      if (lower.endsWith(".pdf")) {
+        content = await readPdfAsText(file);
+      } else {
+        content = await readFileAsText(file);
+      }
+      newFiles.push({ name: file.name, content, selected: true });
+    } catch (e) {
+      appendChat(`\n[跳過] ${file.name}: ${e.message}\n`, "system");
+    }
+  }
+  pw.classList.remove("active");
+  state.attachedFiles.push(...newFiles);
+  syncFilesToContent();
+  renderFileManager();
+}
+
+function renderFileManager() {
+  const container = document.getElementById("fileList");
+  const footer = document.getElementById("fileSummary");
+  if (state.attachedFiles.length === 0) {
+    container.innerHTML = `<div class="empty-state"><div class="big-icon">📭</div><p>目前沒有任何檔案</p><p style="color:#BDC3C7;font-size:12px">點擊「增加新檔案」按鈕來添加文件</p></div>`;
+    footer.textContent = "📊 總計檔案: 0";
+    return;
+  }
+  let totalChars = 0, selectedCount = 0;
+  let html = "";
+  state.attachedFiles.forEach((f, idx) => {
+    const cc = f.content.length;
+    if (f.selected !== false) { totalChars += cc; selectedCount++; }
+    const icon = f.name.toLowerCase().endsWith(".pdf") ? "📕" :
+                /\.(txt|md)$/i.test(f.name) ? "📝" :
+                /\.(py|js|html|css)$/i.test(f.name) ? "💻" : "📄";
+    const checked = f.selected !== false ? "checked" : "";
+    html += `<div class="file-item">
+      <input class="file-checkbox" type="checkbox" ${checked} data-idx="${idx}">
+      <span class="file-icon">${icon}</span>
+      <span class="file-name">${escapeHtml(f.name)}</span>
+      <span class="file-size">📏 ${cc} 字</span>
+      <button class="file-del" data-idx="${idx}">🗑️</button>
+    </div>`;
+  });
+  container.innerHTML = html;
+  footer.textContent = `📊 已選取: ${selectedCount}/${state.attachedFiles.length} 個檔案，共 ${totalChars} 字`;
+
+  container.querySelectorAll(".file-checkbox").forEach(cb => {
+    cb.addEventListener("change", function() {
+      state.attachedFiles[+this.dataset.idx].selected = this.checked;
+      syncFilesToContent();
+      renderFileManager();
+    });
+  });
+  container.querySelectorAll(".file-del").forEach(btn => {
+    btn.addEventListener("click", function() {
+      state.attachedFiles.splice(+this.dataset.idx, 1);
+      syncFilesToContent();
+      renderFileManager();
+    });
+  });
+}
+
+// ---- File Manager Modal ----
+const fileModal = document.getElementById("fileModal");
+document.getElementById("fileBtn").addEventListener("click", () => {
+  fileModal.classList.add("active");
+  renderFileManager();
+});
+document.getElementById("fileModalClose").addEventListener("click", () => fileModal.classList.remove("active"));
+fileModal.addEventListener("click", e => { if (e.target === fileModal) fileModal.classList.remove("active"); });
+
+const hiddenFileInput = document.createElement("input");
+hiddenFileInput.type = "file";
+hiddenFileInput.multiple = true;
+hiddenFileInput.accept = ".txt,.md,.pdf,.py,.js,.html,.css,.*";
+hiddenFileInput.addEventListener("change", e => {
+  if (e.target.files.length) handleFileSelect(e.target.files);
+  e.target.value = "";
+});
+document.getElementById("fileAddBtn").addEventListener("click", () => hiddenFileInput.click());
+
+// ---- Template Manager Modal ----
+const templateModal = document.getElementById("templateModal");
+document.getElementById("manageTemplateBtn").addEventListener("click", () => {
+  templateModal.classList.add("active");
+  renderTemplateList();
+});
+document.getElementById("templateModalClose").addEventListener("click", () => templateModal.classList.remove("active"));
+templateModal.addEventListener("click", e => { if (e.target === templateModal) templateModal.classList.remove("active"); });
+
+function renderTemplateList() {
+  const container = document.getElementById("templateList");
+  const names = Object.keys(state.templates).sort();
+  if (names.length === 0) {
+    container.innerHTML = `<div class="empty-state"><p style="color:#BDC3C7;font-size:13px">尚未建立模板</p></div>`;
+    return;
+  }
+  container.innerHTML = names.map(n =>
+    `<div class="template-item" data-name="${escapeHtml(n)}">📝 ${escapeHtml(n)}</div>`
+  ).join("");
+  container.querySelectorAll(".template-item").forEach(el => {
+    el.addEventListener("click", function() {
+      const name = this.dataset.name;
+      document.getElementById("templateName").value = name;
+      document.getElementById("templateContent").value = state.templates[name] || "";
+    });
+  });
+}
+
+document.getElementById("templateSaveBtn").addEventListener("click", () => {
+  const name = document.getElementById("templateName").value.trim();
+  const content = document.getElementById("templateContent").value.trim();
+  if (name && content) {
+    state.templates[name] = content;
+    saveTemplates(state.templates);
+    renderTemplateList();
+    showToast("success", "模板已儲存");
+  }
+});
+
+document.getElementById("templateDelBtn").addEventListener("click", () => {
+  const name = document.getElementById("templateName").value.trim();
+  if (name && state.templates[name]) {
+    delete state.templates[name];
+    saveTemplates(state.templates);
+    renderTemplateList();
+    document.getElementById("templateName").value = "";
+    document.getElementById("templateContent").value = "";
+    showToast("info", "模板已刪除");
+  }
+});
+
+// ---- Template selector ----
+document.getElementById("templateSelector").addEventListener("change", function() {
+  const name = this.value;
+  if (name && state.templates[name]) {
+    document.getElementById("userInput").value = state.templates[name];
+    this.value = "選擇模板...";
+  }
+});
+
+// ---- API type change ----
+document.getElementById("apiType").addEventListener("change", function() {
+  state.apiType = this.value;
+  const config = loadConfig();
+  const providerMap = { "本地 API":"local", "遠程 API":"remote", "Google Gemini":"google" };
+  const provider = providerMap[this.value] || "local";
+  const pc = config[provider] || DEFAULT_CONFIG[provider] || DEFAULT_CONFIG.local;
+  document.getElementById("apiUrl").value = pc.api_base_url;
+  document.getElementById("apiKey").value = pc.api_key;
+
+  if (this.value === "Google Gemini") {
+    state.apiProvider = "google";
+    const models = ["gemini-2.5-flash", "gemini-2.5-flash-lite"];
+    const sel = document.getElementById("modelSelector");
+    sel.innerHTML = models.map(m => `<option>${m}</option>`).join("");
+    sel.value = "gemini-2.5-flash";
+  } else {
+    state.apiProvider = "openai";
+  }
+});
+
+// ---- Update / Test Connection ----
+document.getElementById("updateBtn").addEventListener("click", async function() {
+  const apiKey = document.getElementById("apiKey").value.trim();
+  if (state.apiProvider === "google") {
+    if (!apiKey || apiKey === "lm-studio") {
+      appendChat("\n[系統] 請先輸入正確的 Google API 金鑰。\n", "system");
+      return;
+    }
+    appendChat("\n[系統] Google Gemini 已就緒。\n", "system");
+    return;
+  }
+  let rawUrl = document.getElementById("apiUrl").value.trim();
+  let baseUrl = rawUrl.endsWith("/v1") ? rawUrl : rawUrl.replace(/\/+$/, "") + "/v1";
+  document.getElementById("apiUrl").value = baseUrl;
+  appendChat("\n[系統] 正在測試連線...\n", "system");
+  try {
+    const resp = await fetch(baseUrl + "/models", {
+      headers: { "Authorization": "Bearer " + apiKey }
+    });
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const data = await resp.json();
+    appendChat("\n[系統] 連線成功！\n", "system");
+    const models = (data.data || data.models || []).map(m => m.id || m.name).filter(Boolean);
+    const sel = document.getElementById("modelSelector");
+    sel.innerHTML = models.map(m => `<option>${escapeHtml(m)}</option>`).join("");
+    if (models.length) sel.value = models[0];
+    showToast("success", "連線成功，已更新模型清單");
+  } catch (e) {
+    appendChat(`\n[系統] 連線失敗: ${e.message}\n`, "system");
+    showToast("error", "連線失敗");
+  }
+});
+
+// ---- Save config ----
+document.getElementById("saveBtn").addEventListener("click", saveConfigToDisk);
+
+// ---- Clear all ----
+document.getElementById("clearBtn").addEventListener("click", () => {
+  document.getElementById("chatDisplay").innerHTML = "";
+  state.attachedFiles = [];
+  syncFilesToContent();
+  showToast("info", "已清除對話與檔案");
+});
+
+// ---- Send ----
+document.getElementById("sendBtn").addEventListener("click", sendAction);
+document.getElementById("userInput").addEventListener("keydown", e => { if (e.key === "Enter") sendAction(); });
+
+async function sendAction() {
+  if (state.isGenerating) {
+    state.stopRequested = true;
+    if (state.abortController) state.abortController.abort();
+    return;
+  }
+  const input = document.getElementById("userInput");
+  const text = input.value.trim();
+  if (!text && !state.fullDocumentContent) return;
+
+  const apiKey = document.getElementById("apiKey").value.trim();
+  if (state.apiProvider === "google" && (!apiKey || apiKey === "lm-studio")) {
+    appendChat("\n[系統提示] 您正在使用 Google Gemini，但尚未填寫正確的 API 金鑰。請將左側的 'lm-studio' 替換為您的 Gemini 金鑰。\n", "system");
+    return;
+  }
+
+  state.isGenerating = true;
+  state.stopRequested = false;
+  const btn = document.getElementById("sendBtn");
+  btn.textContent = "⏹️ 停止";
+  btn.style.background = "#E74C3C";
+  if (text) {
+    appendChat(text, "user");
+  }
+  input.value = "";
+  appendChatRaw(""); // placeholder for AI response
+  await processAiResponse(text);
+}
+
+async function processAiResponse(text) {
+  const prompt = state.fullDocumentContent
+    ? `參考資料：\n${state.fullDocumentContent}\n---\n問題：${text}`
+    : text;
+  const model = document.getElementById("modelSelector").value;
+  const apiKey = document.getElementById("apiKey").value.trim();
+
+  try {
+    if (state.apiProvider === "google") {
+      const baseUrl = document.getElementById("apiUrl").value.trim().replace(/\/+$/, "");
+      const url = `${baseUrl}/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          tools: [{ google_search: {} }]
+        })
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error?.message || "HTTP " + resp.status);
+      const block = getLastAiBlock();
+      if (block) {
+        const t = data.candidates?.[0]?.content?.parts?.[0]?.text || "(無回應)";
+        block.textContent = t;
+      }
+    } else {
+      state.abortController = new AbortController();
+      let baseUrl = document.getElementById("apiUrl").value.trim();
+      baseUrl = baseUrl.endsWith("/v1") ? baseUrl : baseUrl.replace(/\/+$/, "") + "/v1";
+      const resp = await fetch(baseUrl + "/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + apiKey
+        },
+        body: JSON.stringify({
+          model: model,
+          messages: [
+            { role: "system", content: DEFAULT_CONFIG.system_prompt },
+            { role: "user", content: prompt }
+          ],
+          stream: true
+        }),
+        signal: state.abortController.signal
+      });
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        throw new Error(errData.error?.message || "HTTP " + resp.status);
+      }
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let block = getLastAiBlock() || appendChatRaw("");
+      block.textContent = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || !trimmed.startsWith("data: ")) continue;
+          const jsonStr = trimmed.slice(6);
+          if (jsonStr === "[DONE]") { state.stopRequested = true; break; }
+          try {
+            const chunk = JSON.parse(jsonStr);
+            const content = chunk.choices?.[0]?.delta?.content || "";
+            if (content) {
+              block.textContent += content;
+            }
+          } catch(e) {}
+        }
+        if (state.stopRequested) {
+          reader.cancel();
+          break;
+        }
+      }
+    }
+    if (state.stopRequested) {
+      appendChat("\n[已停止]\n", "system");
+    }
+    appendChat("\n" + "─".repeat(30) + "\n", "system");
+  } catch (e) {
+    if (e.name === "AbortError") {
+      appendChat("\n[已停止]\n", "system");
+    } else {
+      let msg = e.message;
+      if (msg.includes("API key not valid")) msg = "Google API 金鑰無效，請檢查您的金鑰是否正確填寫。";
+      appendChat(`\n[錯誤] ${msg}\n`, "system");
+    }
+  } finally {
+    state.isGenerating = false;
+    state.stopRequested = false;
+    state.abortController = null;
+    const btn = document.getElementById("sendBtn");
+    btn.textContent = "🚀 傳送";
+    btn.style.background = "#3498DB";
+  }
+}
+
+// ---- Init ----
+async function init() {
+  await fetchConfigFromFile();
+  await fetchTemplatesFromFile();
+  state.templates = loadTemplates();
+  const config = loadConfig();
+  const providerMap = { "本地 API":"local", "遠程 API":"remote", "Google Gemini":"google" };
+  const currentProvider = providerMap[state.apiType] || "local";
+  const pc = config[currentProvider] || DEFAULT_CONFIG.local;
+  document.getElementById("apiUrl").value = pc.api_base_url;
+  document.getElementById("apiKey").value = pc.api_key;
+
+  const names = Object.keys(state.templates).sort();
+  const sel = document.getElementById("templateSelector");
+  sel.innerHTML = '<option>選擇模板...</option>' + names.map(n => `<option>${escapeHtml(n)}</option>`).join('');
+}
+
+init();
+</script>
+</body>
+</html>
