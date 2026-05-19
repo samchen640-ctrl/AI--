@@ -70,6 +70,13 @@ body{font-family:"Microsoft JhengHei","Segoe UI",sans-serif;height:100vh;overflo
 .toast.success{background:#27AE60}
 .toast.error{background:#E74C3C}
 .toast.info{background:#3498DB}
+
+/* 🏆 新增：打字/思考中的 CSS 動畫特效 */
+.typing-dots { display: inline-flex; align-items: center; gap: 4px; color: #3498DB; font-size: 13px; font-weight: bold; font-style: italic; }
+.typing-dots span { width: 6px; height: 6px; background: #3498DB; border-radius: 50%; animation: typingBounce 1.4s infinite ease-in-out both; }
+.typing-dots span:nth-child(1) { animation-delay: -0.32s; }
+.typing-dots span:nth-child(2) { animation-delay: -0.16s; }
+@keyframes typingBounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
 </style>
 </head>
 <body>
@@ -361,17 +368,18 @@ async function readPdfAsText(file) {
   return text;
 }
 
+// 🏆 核心翻新：改用平行處理 Promise.all 以防禦 Event Loop 閒置造成的垃圾回收
 async function handleFileSelect(fileList) {
-  const newFiles = [];
-  const total = fileList.length;
   const pw = document.getElementById("progressWrap");
   const pb = document.getElementById("progressBar");
   pw.classList.add("active");
-  
-  for (let i = 0; i < total; i++) {
-    const file = fileList[i];
-    pb.style.width = ((i + 1) / total * 100) + "%";
-    document.getElementById("statusText").textContent = `正在讀取 (${i+1}/${total}): ${file.name}`;
+  const total = fileList.length;
+  document.getElementById("statusText").textContent = `開始平行處理 ${total} 個檔案...`;
+
+  let completed = 0;
+
+  // 1. 同步啟動所有讀取任務 (瞬間鎖死所有 File Handles)
+  const promises = Array.from(fileList).map(async (file) => {
     try {
       let content = "";
       const lower = file.name.toLowerCase();
@@ -380,11 +388,20 @@ async function handleFileSelect(fileList) {
       } else {
         content = await readFileAsText(file);
       }
-      newFiles.push({ name: file.name, content, selected: true });
+      return { name: file.name, content, selected: true, ok: true };
     } catch (e) {
       appendChat(`\n[跳過] ${file?.name || '未知檔案'}: ${e.message}\n`, "system");
+      return { ok: false };
+    } finally {
+      completed++;
+      pb.style.width = (completed / total * 100) + "%";
+      document.getElementById("statusText").textContent = `平行讀取中 (${completed}/${total})...`;
     }
-  }
+  });
+
+  // 2. 等待所有平行任務完成
+  const results = await Promise.all(promises);
+  const newFiles = results.filter(r => r.ok).map(r => ({ name: r.name, content: r.content, selected: r.selected }));
   
   pw.classList.remove("active");
   state.attachedFiles.push(...newFiles);
@@ -449,16 +466,14 @@ const hiddenFileInput = document.createElement("input");
 hiddenFileInput.type = "file";
 hiddenFileInput.multiple = true;
 hiddenFileInput.accept = ".txt,.md,.pdf,.py,.js,.html,.css,.*";
+hiddenFileInput.style.display = "none"; // 隱藏元素
+document.body.appendChild(hiddenFileInput); // 🏆 核心修正點 1：強制掛載到實體 DOM 樹，徹底杜絕 GC 問題
 
-// 🏆 核心修正點：非同步生命週期陷阱
 hiddenFileInput.addEventListener("change", async e => {
   if (e.target.files.length) {
-    // 1. 將 Live Collection (FileList) 轉換為靜態 Array
     const filesArray = Array.from(e.target.files);
-    // 2. 加上 await 確保檔案處理完全結束
     await handleFileSelect(filesArray);
   }
-  // 3. 處理完畢後才清空 value，避免在非同步過程中銷毀了 FileList 導致後續檔案無法讀取
   e.target.value = "";
 });
 document.getElementById("fileAddBtn").addEventListener("click", () => hiddenFileInput.click());
@@ -514,7 +529,7 @@ document.getElementById("templateDelBtn").addEventListener("click", () => {
   }
 });
 
-// 🏆 新增：匯出 JSON 功能
+// 🏆 匯出 JSON 功能
 document.getElementById("templateExportBtn").addEventListener("click", () => {
   const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state.templates, null, 2));
   const dlAnchorElem = document.createElement('a');
@@ -524,7 +539,7 @@ document.getElementById("templateExportBtn").addEventListener("click", () => {
   showToast("success", "已下載 templates.json");
 });
 
-// 🏆 新增：匯入 JSON 功能
+// 🏆 匯入 JSON 功能
 document.getElementById("templateImportBtn").addEventListener("click", () => {
   const input = document.createElement('input');
   input.type = 'file';
@@ -536,7 +551,7 @@ document.getElementById("templateImportBtn").addEventListener("click", () => {
     reader.onload = event => {
       try {
         const imported = JSON.parse(event.target.result);
-        state.templates = { ...state.templates, ...imported }; // 擴充原有的模板
+        state.templates = { ...state.templates, ...imported }; 
         saveTemplates(state.templates);
         renderTemplateList();
         showToast("success", "模板匯入成功！");
@@ -652,38 +667,88 @@ async function sendAction() {
     appendChat(text, "user");
   }
   input.value = "";
-  appendChatRaw(""); // placeholder for AI response
+  
+  // 🏆 修改：取代原本的空字串，放入「思考中...」的跳動點點動畫
+  appendChatRaw('<div class="typing-dots">🤖 思考中<span></span><span></span><span></span></div>');
+  
   await processAiResponse(text);
 }
 
+// 🏆 核心翻新：統一串流處理 (Streaming) 與 TTFB 動畫消除防禦
 async function processAiResponse(text) {
   const prompt = state.fullDocumentContent
     ? `參考資料：\n${state.fullDocumentContent}\n---\n問題：${text}`
     : text;
   const model = document.getElementById("modelSelector").value;
   const apiKey = document.getElementById("apiKey").value.trim();
+  
+  let block = getLastAiBlock();
+  let isFirstChunk = true; // 追蹤是否為首字節
+
+  // 統一的串流渲染器
+  const appendChunk = (chunkText) => {
+    if (!chunkText) return;
+    if (isFirstChunk) {
+      if (block) block.textContent = ""; // 首字節抵達時，才真正清除「思考中...」的動畫
+      isFirstChunk = false;
+    }
+    if (block) {
+      block.textContent += chunkText;
+      // 即時滾動到底部
+      const display = document.getElementById("chatDisplay");
+      display.scrollTop = display.scrollHeight;
+    }
+  };
 
   try {
+    state.abortController = new AbortController();
+
     if (state.apiProvider === "google") {
       const baseUrl = document.getElementById("apiUrl").value.trim().replace(/\/+$/, "");
-      const url = `${baseUrl}/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      // 升級：改用 streamGenerateContent 與 SSE 即時串流
+      const url = `${baseUrl}/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${apiKey}`;
       const resp = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
           tools: [{ google_search: {} }]
-        })
+        }),
+        signal: state.abortController.signal
       });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.error?.message || "HTTP " + resp.status);
-      const block = getLastAiBlock();
-      if (block) {
-        const t = data.candidates?.[0]?.content?.parts?.[0]?.text || "(無回應)";
-        block.textContent = t;
+      
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        throw new Error(errData.error?.message || "HTTP " + resp.status);
+      }
+      
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || !trimmed.startsWith("data: ")) continue;
+          const jsonStr = trimmed.slice(6);
+          try {
+            const chunk = JSON.parse(jsonStr);
+            const content = chunk.candidates?.[0]?.content?.parts?.[0]?.text || "";
+            appendChunk(content);
+          } catch(e) {}
+        }
+        if (state.stopRequested) {
+          reader.cancel();
+          break;
+        }
       }
     } else {
-      state.abortController = new AbortController();
       let baseUrl = document.getElementById("apiUrl").value.trim();
       baseUrl = baseUrl.endsWith("/v1") ? baseUrl : baseUrl.replace(/\/+$/, "") + "/v1";
       const resp = await fetch(baseUrl + "/chat/completions", {
@@ -702,15 +767,15 @@ async function processAiResponse(text) {
         }),
         signal: state.abortController.signal
       });
+      
       if (!resp.ok) {
         const errData = await resp.json().catch(() => ({}));
         throw new Error(errData.error?.message || "HTTP " + resp.status);
       }
+      
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
-      let block = getLastAiBlock() || appendChatRaw("");
-      block.textContent = "";
 
       while (true) {
         const { done, value } = await reader.read();
@@ -718,6 +783,7 @@ async function processAiResponse(text) {
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
+        
         for (const line of lines) {
           const trimmed = line.trim();
           if (!trimmed || !trimmed.startsWith("data: ")) continue;
@@ -726,9 +792,7 @@ async function processAiResponse(text) {
           try {
             const chunk = JSON.parse(jsonStr);
             const content = chunk.choices?.[0]?.delta?.content || "";
-            if (content) {
-              block.textContent += content;
-            }
+            appendChunk(content);
           } catch(e) {}
         }
         if (state.stopRequested) {
@@ -737,11 +801,23 @@ async function processAiResponse(text) {
         }
       }
     }
+
+    // 防禦：如果串流結束但沒回傳任何內容，避免動畫一直留在畫面上
+    if (isFirstChunk && block) {
+      block.textContent = "(無回應)";
+    }
+
     if (state.stopRequested) {
       appendChat("\n[已停止]\n", "system");
     }
     appendChat("\n" + "─".repeat(30) + "\n", "system");
   } catch (e) {
+    // 錯誤攔截防禦
+    const currentBlock = getLastAiBlock();
+    if (currentBlock && currentBlock.querySelector('.typing-dots')) {
+      currentBlock.innerHTML = '<span style="color:#E74C3C">❌ (無法取得回應)</span>';
+    }
+
     if (e.name === "AbortError") {
       appendChat("\n[已停止]\n", "system");
     } else {
@@ -765,7 +841,6 @@ async function init() {
   const configData = await fetchConfigFromFile();
   const templateData = await fetchTemplatesFromFile();
   
-  // 💡 如果是直接點開 HTML，而且載入失敗，給予提示
   if (isFileProtocol && (!configData || !templateData)) {
     setTimeout(() => {
       showToast("info", "提示：以本地檔案開啟無法自動讀取 JSON，請使用模板管理【匯入 JSON】。");
