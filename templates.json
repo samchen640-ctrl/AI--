@@ -1,0 +1,10 @@
+{
+    "Japan  Declared Power Check": "列表式回答:從文件中檢查RF General Information 中的Declared Power是否與Power Tolerance Appendix 文件中的Declare 數值相符,回覆時不要有$\\text,特殊字元",
+    "場地與儀器校正日期": "列表式回答:從文件中檢查Testing Location Information 的Test Site No.與Test Date 是否在Test Equipment and Calibration Data 的 Calibration Date 與Calibration Due Date區間內並檢查替代設備是否Calibration Due Date區間,Chamber NSA & VSWR也要檢查,回覆時不要有$\\text,特殊字元",
+    "Receiver Blocking P min Check": "列表式回答:從文件中檢查報告P min (dBm)是否為負值,回覆時不要有$\\text,特殊字元",
+    "Data正確性檢查": "列表式回答:從文件中檢查文件是否有fail 數據及超過limit,回覆時不要有$\\text,特殊字元",
+    "檢查報告字眼": "從文件中檢查有無\"錯誤\"的字眼,回覆時不要有$\\text,特殊字元",
+    "檢查測試區間": "列表式回答:從文件中檢查首頁 testing started and completed date跟Testing Location Information 的Test Date 是否符合在區間內,回覆時不要有$\\text,特殊字元",
+    "Appendix 編號檢查": "列表式回答:從文件中檢查Table of Contents  Appendix 編號及標題是否與Appendix PDF文件Appendix 編號及標題相符,回覆時不要有$\\text,特殊字元",
+    "比對數據": "請比對EN305 550 Test Table(57~64GHz)_V1.2.1_20230529表格內容是否與報告相符,回覆時不要有$\\text,特殊字元"
+}
