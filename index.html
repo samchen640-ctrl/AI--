@@ -604,7 +604,8 @@ async function sendAction() {
   btn.style.background = "#E74C3C";
   if (text) appendChat(text, "user");
   input.value = "";
-  appendChatRaw("");
+  appendChatRaw("⏳ 思考中...");
+  document.getElementById("statusText").textContent = "🤔 AI 思考中...";
   await processAiResponse(text);
 }
 
@@ -618,7 +619,9 @@ async function processAiResponse(text) {
   let isTimeout = false;
   const controller = new AbortController();
   state.abortController = controller;
-  const timeoutTimer = setTimeout(() => { isTimeout = true; controller.abort(); }, TIMEOUT_MS);
+
+  let chunkTimer = setTimeout(() => { isTimeout = true; controller.abort(); }, TIMEOUT_MS);
+  function resetChunkTimeout() { clearTimeout(chunkTimer); chunkTimer = setTimeout(() => { isTimeout = true; controller.abort(); }, TIMEOUT_MS); }
 
   try {
     let baseUrl = document.getElementById("apiUrl").value.trim();
@@ -639,6 +642,7 @@ async function processAiResponse(text) {
       }),
       signal: controller.signal
     });
+    resetChunkTimeout();
     if (!resp.ok) {
       const errData = await resp.json().catch(() => ({}));
       throw new Error(errData.error?.message || "HTTP " + resp.status);
@@ -647,26 +651,25 @@ async function processAiResponse(text) {
     const decoder = new TextDecoder();
     let buffer = "";
     let block = getLastAiBlock() || appendChatRaw("");
+    if (block.textContent === "⏳ 思考中...") block.textContent = "";
     block.textContent = "";
     let streamAccum = "";
     let flushPending = false;
-    let idleTimer = null;
+    let gotFirstToken = false;
 
     function flushStream() {
       if (streamAccum) { block.textContent += streamAccum; streamAccum = ""; }
       flushPending = false;
     }
-    function resetIdleTimer() {
-      if (idleTimer) clearTimeout(idleTimer);
-      if (!state.stopRequested) {
-        idleTimer = setTimeout(() => appendChat("\n[系統] 伺服器回應停滯（仍在等待資料）...\n", "system"), 30000);
-      }
-    }
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      resetIdleTimer();
+      resetChunkTimeout();
+      if (!gotFirstToken) {
+        gotFirstToken = true;
+        document.getElementById("statusText").textContent = "✍️ 正在輸出...";
+      }
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
       buffer = lines.pop() || "";
@@ -687,25 +690,22 @@ async function processAiResponse(text) {
       if (state.stopRequested) { reader.cancel(); break; }
     }
     flushStream();
-    if (idleTimer) clearTimeout(idleTimer);
     if (state.stopRequested && !isTimeout) appendChat("\n[已停止]\n", "system");
   } catch (e) {
     if (e.name === "AbortError") {
       appendChat(isTimeout
-        ? `\n[系統] 請求逾時（超過 ${TIMEOUT_MS/1000} 秒，模型仍在執行可調高 timeout）\n`
+        ? `\n[系統] 請求逾時（超過 ${TIMEOUT_MS/1000} 秒未收到資料，與 Python timeout=600 行為一致）\n`
         : "\n[已停止]\n", "system");
     } else {
+      console.error("[processAiResponse]", e);
       let msg = e.message;
       if (msg === "Failed to fetch" || msg.includes("NetworkError")) {
-        const url = document.getElementById("apiUrl").value.trim();
-        msg = url.includes("127.0.0.1") || url.includes("localhost")
-          ? `無法連線至 ${url}，請確認 LM Studio 正在執行`
-          : `與伺服器連線中斷（建議改用本機 IP http://127.0.0.1:1234/v1 直連）`;
+        msg = `與伺服器連線中斷（連線逾時或 Cloudflare 切斷，Python 版使用 httpx 有不同連線管理）`;
       }
       appendChat(`\n[錯誤] ${msg}\n`, "system");
     }
   } finally {
-    clearTimeout(timeoutTimer);
+    clearTimeout(chunkTimer);
     state.isGenerating = false;
     state.stopRequested = false;
     state.abortController = null;
@@ -713,6 +713,7 @@ async function processAiResponse(text) {
     btn.textContent = "🚀 傳送";
     btn.style.background = "#3498DB";
     appendChat("\n" + "─".repeat(30) + "\n", "system");
+    syncFilesToContent();
   }
 }
 
