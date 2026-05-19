@@ -2,6 +2,9 @@
 <html lang="zh-TW">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>🤖 AI小助手 (檔案選取分析版)</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -70,30 +73,15 @@ body{font-family:"Microsoft JhengHei","Segoe UI",sans-serif;height:100vh;overflo
 .toast.success{background:#27AE60}
 .toast.error{background:#E74C3C}
 .toast.info{background:#3498DB}
-
-/* 🏆 新增：打字/思考中的 CSS 動畫特效 */
-.typing-dots { display: inline-flex; align-items: center; gap: 4px; color: #3498DB; font-size: 13px; font-weight: bold; font-style: italic; }
-.typing-dots span { width: 6px; height: 6px; background: #3498DB; border-radius: 50%; animation: typingBounce 1.4s infinite ease-in-out both; }
-.typing-dots span:nth-child(1) { animation-delay: -0.32s; }
-.typing-dots span:nth-child(2) { animation-delay: -0.16s; }
-@keyframes typingBounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
 </style>
 </head>
 <body>
 <div class="app-container">
 <aside class="sidebar" id="sidebar">
-<div class="sidebar-title">⚙️ AI 設定面板</div>
-<div class="sidebar-section">
-<span class="sidebar-label">🔌 API 類型:</span>
-<select class="sidebar-select" id="apiType" style="background:#34495E;color:#fff;border-color:#3498DB">
-<option>本地 API</option>
-<option>遠程 API</option>
-<option>Google Gemini</option>
-</select>
-</div>
+<div class="sidebar-title">⚙️ 設定</div>
 <div class="sidebar-section">
 <span class="sidebar-label">🌐 API 網址:</span>
-<input class="sidebar-input" id="apiUrl" value="https://unpurged-tamed-lois.ngrok-free.dev/v1">
+<input class="sidebar-input" id="apiUrl" value="http://127.0.0.1:1234/v1">
 </div>
 <div class="sidebar-section">
 <span class="sidebar-label">🔑 API 金鑰:</span>
@@ -111,7 +99,7 @@ body{font-family:"Microsoft JhengHei","Segoe UI",sans-serif;height:100vh;overflo
 <button class="sidebar-btn" id="manageTemplateBtn" style="background:#16A085">⚙️ 管理模板</button>
 </div>
 <div class="sidebar-section" style="margin-top:8px">
-<button class="sidebar-btn" id="updateBtn" style="background:#2980B9">🔄 更新並測試連線</button>
+<button class="sidebar-btn" id="updateBtn" style="background:#2980B9">🔄 測試連線</button>
 <button class="sidebar-btn" id="saveBtn" style="background:#27AE60">💾 儲存設定</button>
 <button class="sidebar-btn" id="clearBtn" style="background:#C0392B">🗑️ 清除對話與檔案</button>
 </div>
@@ -161,10 +149,6 @@ body{font-family:"Microsoft JhengHei","Segoe UI",sans-serif;height:100vh;overflo
 <button class="sidebar-btn" id="templateSaveBtn" style="background:#27AE60;flex:1">💾 儲存 / 新增</button>
 <button class="sidebar-btn" id="templateDelBtn" style="background:#E74C3C;flex:1">🗑️ 刪除</button>
 </div>
-<div style="display:flex;gap:10px;margin-bottom:10px">
-<button class="sidebar-btn" id="templateImportBtn" style="background:#F39C12;flex:1;color:#fff">📂 匯入 JSON</button>
-<button class="sidebar-btn" id="templateExportBtn" style="background:#8E44AD;flex:1;color:#fff">📤 匯出 JSON</button>
-</div>
 <span class="sidebar-label" style="color:#9B59B6;margin-top:8px">已儲存的模板</span>
 <div id="templateList"></div>
 </div>
@@ -177,16 +161,13 @@ body{font-family:"Microsoft JhengHei","Segoe UI",sans-serif;height:100vh;overflo
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
 const DEFAULT_CONFIG = {
-  local: { api_base_url: "https://unpurged-tamed-lois.ngrok-free.dev/v1", api_key: "lm-studio" },
-  remote: { api_base_url: "https://api.deepseek.com/v1", api_key: "" },
-  google: { api_base_url: "https://generativelanguage.googleapis.com", api_key: "" },
+  api_base_url: "http://127.0.0.1:1234/v1",
+  api_key: "lm-studio",
   system_prompt: "你是一個專業的助理，請使用繁體中文回答。你可以閱讀我提供的完整文件內容並進行深度分析。",
   timeout: 600.0
 };
 
 const state = {
-  apiProvider: "openai",
-  apiType: "本地 API",
   attachedFiles: [],
   fullDocumentContent: "",
   isGenerating: false,
@@ -218,8 +199,14 @@ async function fetchJSON(file) {
 async function fetchConfigFromFile() {
   const data = await fetchJSON("config.json");
   if (data) {
-    localStorage.setItem("ai_doc_config", JSON.stringify(data));
-    return data;
+    const clean = {
+      api_base_url: data.api_base_url || data.local?.api_base_url || DEFAULT_CONFIG.api_base_url,
+      api_key: data.api_key || data.local?.api_key || DEFAULT_CONFIG.api_key,
+      system_prompt: data.system_prompt || DEFAULT_CONFIG.system_prompt,
+      timeout: data.timeout || DEFAULT_CONFIG.timeout
+    };
+    localStorage.setItem("ai_doc_config", JSON.stringify(clean));
+    return clean;
   }
   return null;
 }
@@ -227,29 +214,20 @@ async function fetchConfigFromFile() {
 function loadConfig() {
   try {
     const raw = localStorage.getItem("ai_doc_config");
-    if (raw) {
-      const saved = JSON.parse(raw);
-      for (const k of ["local","remote","google"]) {
-        saved[k] = { ...DEFAULT_CONFIG[k], ...(saved[k]||{}) };
-      }
-      return saved;
-    }
+    if (raw) return { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
   } catch(e) {}
-  return JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+  return { ...DEFAULT_CONFIG };
 }
 
 function saveConfigToDisk() {
-  const providerMap = { "本地 API":"local", "遠程 API":"remote", "Google Gemini":"google" };
-  const provider = providerMap[state.apiType] || "local";
-  const config = loadConfig();
-  config[provider] = {
+  const config = {
     api_base_url: document.getElementById("apiUrl").value.trim(),
-    api_key: document.getElementById("apiKey").value.trim()
+    api_key: document.getElementById("apiKey").value.trim(),
+    system_prompt: DEFAULT_CONFIG.system_prompt,
+    timeout: DEFAULT_CONFIG.timeout
   };
-  config.system_prompt = DEFAULT_CONFIG.system_prompt;
-  config.timeout = DEFAULT_CONFIG.timeout;
   localStorage.setItem("ai_doc_config", JSON.stringify(config));
-  showToast("success", `${state.apiType} 設定已儲存`);
+  showToast("success", "設定已儲存");
 }
 
 async function fetchTemplatesFromFile() {
@@ -325,15 +303,16 @@ function getLastAiBlock() {
 
 // ---- File Management ----
 function syncFilesToContent() {
-  let combined = "", selectedCount = 0, chars = 0;
+  const parts = [];
+  let selectedCount = 0, chars = 0;
   for (const f of state.attachedFiles) {
     if (f.selected !== false) {
-      combined += `\n--- ${f.name} ---\n${f.content}\n`;
+      parts.push(`\n--- ${f.name} ---\n${f.content}\n`);
       selectedCount++;
       chars += f.content.length;
     }
   }
-  state.fullDocumentContent = combined;
+  state.fullDocumentContent = parts.join("");
   const icon = document.getElementById("statusIcon");
   const text = document.getElementById("statusText");
   if (chars > 0) {
@@ -361,52 +340,77 @@ async function readPdfAsText(file) {
   const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
   let text = "";
   for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const tc = await page.getTextContent();
-    text += tc.items.map(it => it.str).join(" ") + "\n";
+    try {
+      const page = await pdf.getPage(i);
+      const tc = await page.getTextContent();
+      text += tc.items.map(it => it.str).join(" ") + "\n";
+    } catch (e) {
+      console.warn(`[PDF] 第 ${i} 頁讀取失敗:`, e);
+    }
+    await new Promise(r => requestAnimationFrame(r));
   }
   return text;
 }
 
-// 🏆 核心翻新：改用平行處理 Promise.all 以防禦 Event Loop 閒置造成的垃圾回收
+let processingFiles = false;
+
 async function handleFileSelect(fileList) {
-  const pw = document.getElementById("progressWrap");
-  const pb = document.getElementById("progressBar");
-  pw.classList.add("active");
-  const total = fileList.length;
-  document.getElementById("statusText").textContent = `開始平行處理 ${total} 個檔案...`;
+  if (processingFiles) {
+    console.warn("[檔案] 正在處理中，略過本次請求");
+    return;
+  }
 
-  let completed = 0;
+  const files = Array.from(fileList);
+  if (!files.length) return;
+  processingFiles = true;
 
-  // 1. 同步啟動所有讀取任務 (瞬間鎖死所有 File Handles)
-  const promises = Array.from(fileList).map(async (file) => {
-    try {
-      let content = "";
-      const lower = file.name.toLowerCase();
-      if (lower.endsWith(".pdf")) {
-        content = await readPdfAsText(file);
-      } else {
-        content = await readFileAsText(file);
+  try {
+    const pw = document.getElementById("progressWrap");
+    const pb = document.getElementById("progressBar");
+    const statusText = document.getElementById("statusText");
+    pw.classList.add("active");
+
+    const total = files.length;
+    const newFiles = [];
+
+    for (let i = 0; i < total; i++) {
+      const file = files[i];
+      if (!file) {
+        console.warn(`[檔案] files[${i}] 為空，跳過`);
+        continue;
       }
-      return { name: file.name, content, selected: true, ok: true };
-    } catch (e) {
-      appendChat(`\n[跳過] ${file?.name || '未知檔案'}: ${e.message}\n`, "system");
-      return { ok: false };
-    } finally {
-      completed++;
-      pb.style.width = (completed / total * 100) + "%";
-      document.getElementById("statusText").textContent = `平行讀取中 (${completed}/${total})...`;
-    }
-  });
+      const pct = Math.round((i + 1) / total * 100);
+      console.log(`[檔案] 開始處理 (${i+1}/${total}): ${file.name}`);
 
-  // 2. 等待所有平行任務完成
-  const results = await Promise.all(promises);
-  const newFiles = results.filter(r => r.ok).map(r => ({ name: r.name, content: r.content, selected: r.selected }));
-  
-  pw.classList.remove("active");
-  state.attachedFiles.push(...newFiles);
-  syncFilesToContent();
-  renderFileManager();
+      pb.style.width = pct + "%";
+      statusText.textContent = `正在讀取 (${i+1}/${total}): ${file.name}`;
+      await new Promise(r => requestAnimationFrame(r));
+
+      try {
+        const lower = file.name.toLowerCase();
+        const content = lower.endsWith(".pdf") ? await readPdfAsText(file) : await readFileAsText(file);
+        newFiles.push({ name: file.name, content, selected: true });
+        console.log(`[檔案] 完成 (${i+1}/${total}): ${file.name} (${content.length} 字)`);
+      } catch (e) {
+        console.error(`[檔案] 跳過 ${file.name}:`, e);
+        appendChat(`\n[跳過] ${file.name}: ${e.message}\n`, "system");
+      }
+
+      await new Promise(r => requestAnimationFrame(r));
+    }
+
+    pw.classList.remove("active");
+    statusText.textContent = `正在更新檔案列表...`;
+    await new Promise(r => requestAnimationFrame(r));
+    state.attachedFiles.push(...newFiles);
+    syncFilesToContent();
+    renderFileManager();
+    console.log(`[檔案] 全部完成，共 ${newFiles.length} 個檔案`);
+  } catch (e) {
+    console.error("[檔案] handleFileSelect 發生未知錯誤:", e);
+  } finally {
+    processingFiles = false;
+  }
 }
 
 function renderFileManager() {
@@ -466,15 +470,14 @@ const hiddenFileInput = document.createElement("input");
 hiddenFileInput.type = "file";
 hiddenFileInput.multiple = true;
 hiddenFileInput.accept = ".txt,.md,.pdf,.py,.js,.html,.css,.*";
-hiddenFileInput.style.display = "none"; // 隱藏元素
-document.body.appendChild(hiddenFileInput); // 🏆 核心修正點 1：強制掛載到實體 DOM 樹，徹底杜絕 GC 問題
-
-hiddenFileInput.addEventListener("change", async e => {
-  if (e.target.files.length) {
-    const filesArray = Array.from(e.target.files);
-    await handleFileSelect(filesArray);
+hiddenFileInput.addEventListener("change", e => {
+  if (e.target.files && e.target.files.length) {
+    const files = Array.from(e.target.files).filter(Boolean);
+    e.target.value = "";
+    handleFileSelect(files).catch(err => console.error("[檔案] handleFileSelect 錯誤:", err));
+  } else {
+    e.target.value = "";
   }
-  e.target.value = "";
 });
 document.getElementById("fileAddBtn").addEventListener("click", () => hiddenFileInput.click());
 
@@ -529,41 +532,6 @@ document.getElementById("templateDelBtn").addEventListener("click", () => {
   }
 });
 
-// 🏆 匯出 JSON 功能
-document.getElementById("templateExportBtn").addEventListener("click", () => {
-  const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state.templates, null, 2));
-  const dlAnchorElem = document.createElement('a');
-  dlAnchorElem.setAttribute("href", dataStr);
-  dlAnchorElem.setAttribute("download", "templates.json");
-  dlAnchorElem.click();
-  showToast("success", "已下載 templates.json");
-});
-
-// 🏆 匯入 JSON 功能
-document.getElementById("templateImportBtn").addEventListener("click", () => {
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = '.json';
-  input.onchange = e => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = event => {
-      try {
-        const imported = JSON.parse(event.target.result);
-        state.templates = { ...state.templates, ...imported }; 
-        saveTemplates(state.templates);
-        renderTemplateList();
-        showToast("success", "模板匯入成功！");
-      } catch(err) {
-        showToast("error", "JSON 格式錯誤，無法解析！");
-      }
-    };
-    reader.readAsText(file);
-  };
-  input.click();
-});
-
 // ---- Template selector ----
 document.getElementById("templateSelector").addEventListener("change", function() {
   const name = this.value;
@@ -573,41 +541,13 @@ document.getElementById("templateSelector").addEventListener("change", function(
   }
 });
 
-// ---- API type change ----
-document.getElementById("apiType").addEventListener("change", function() {
-  state.apiType = this.value;
-  const config = loadConfig();
-  const providerMap = { "本地 API":"local", "遠程 API":"remote", "Google Gemini":"google" };
-  const provider = providerMap[this.value] || "local";
-  const pc = config[provider] || DEFAULT_CONFIG[provider] || DEFAULT_CONFIG.local;
-  document.getElementById("apiUrl").value = pc.api_base_url;
-  document.getElementById("apiKey").value = pc.api_key;
-
-  if (this.value === "Google Gemini") {
-    state.apiProvider = "google";
-    const models = ["gemini-2.5-flash", "gemini-2.5-flash-lite"];
-    const sel = document.getElementById("modelSelector");
-    sel.innerHTML = models.map(m => `<option>${m}</option>`).join("");
-    sel.value = "gemini-2.5-flash";
-  } else {
-    state.apiProvider = "openai";
-  }
-});
-
-// ---- Update / Test Connection ----
+// ---- Test Connection ----
 document.getElementById("updateBtn").addEventListener("click", async function() {
   const apiKey = document.getElementById("apiKey").value.trim();
-  if (state.apiProvider === "google") {
-    if (!apiKey || apiKey === "lm-studio") {
-      appendChat("\n[系統] 請先輸入正確的 Google API 金鑰。\n", "system");
-      return;
-    }
-    appendChat("\n[系統] Google Gemini 已就緒。\n", "system");
-    return;
-  }
   let rawUrl = document.getElementById("apiUrl").value.trim();
   let baseUrl = rawUrl.endsWith("/v1") ? rawUrl : rawUrl.replace(/\/+$/, "") + "/v1";
   document.getElementById("apiUrl").value = baseUrl;
+  preconnectToApi(baseUrl);
   appendChat("\n[系統] 正在測試連線...\n", "system");
   try {
     const resp = await fetch(baseUrl + "/models", {
@@ -622,7 +562,12 @@ document.getElementById("updateBtn").addEventListener("click", async function() 
     if (models.length) sel.value = models[0];
     showToast("success", "連線成功，已更新模型清單");
   } catch (e) {
-    appendChat(`\n[系統] 連線失敗: ${e.message}\n`, "system");
+    let connMsg = e.message;
+    const isTunnel = !baseUrl.includes("127.0.0.1") && !baseUrl.includes("localhost");
+    if ((connMsg === "Failed to fetch" || connMsg.includes("NetworkError")) && isTunnel) {
+      connMsg += " (若使用 Cloudflare Tunnel，建議改用本機 IP 直連)";
+    }
+    appendChat(`\n[系統] 連線失敗: ${connMsg}\n`, "system");
     showToast("error", "連線失敗");
   }
 });
@@ -652,208 +597,150 @@ async function sendAction() {
   const text = input.value.trim();
   if (!text && !state.fullDocumentContent) return;
 
-  const apiKey = document.getElementById("apiKey").value.trim();
-  if (state.apiProvider === "google" && (!apiKey || apiKey === "lm-studio")) {
-    appendChat("\n[系統提示] 您正在使用 Google Gemini，但尚未填寫正確的 API 金鑰。請將左側的 'lm-studio' 替換為您的 Gemini 金鑰。\n", "system");
-    return;
-  }
-
   state.isGenerating = true;
   state.stopRequested = false;
   const btn = document.getElementById("sendBtn");
   btn.textContent = "⏹️ 停止";
   btn.style.background = "#E74C3C";
-  if (text) {
-    appendChat(text, "user");
-  }
+  if (text) appendChat(text, "user");
   input.value = "";
-  
-  // 🏆 修改：取代原本的空字串，放入「思考中...」的跳動點點動畫
-  appendChatRaw('<div class="typing-dots">🤖 思考中<span></span><span></span><span></span></div>');
-  
+  appendChatRaw("");
   await processAiResponse(text);
 }
 
-// 🏆 核心翻新：統一串流處理 (Streaming) 與 TTFB 動畫消除防禦
 async function processAiResponse(text) {
   const prompt = state.fullDocumentContent
     ? `參考資料：\n${state.fullDocumentContent}\n---\n問題：${text}`
     : text;
   const model = document.getElementById("modelSelector").value;
   const apiKey = document.getElementById("apiKey").value.trim();
-  
-  let block = getLastAiBlock();
-  let isFirstChunk = true; // 追蹤是否為首字節
-
-  // 統一的串流渲染器
-  const appendChunk = (chunkText) => {
-    if (!chunkText) return;
-    if (isFirstChunk) {
-      if (block) block.textContent = ""; // 首字節抵達時，才真正清除「思考中...」的動畫
-      isFirstChunk = false;
-    }
-    if (block) {
-      block.textContent += chunkText;
-      // 即時滾動到底部
-      const display = document.getElementById("chatDisplay");
-      display.scrollTop = display.scrollHeight;
-    }
-  };
+  const TIMEOUT_MS = (DEFAULT_CONFIG.timeout || 600) * 1000;
+  let isTimeout = false;
+  const controller = new AbortController();
+  state.abortController = controller;
+  const timeoutTimer = setTimeout(() => { isTimeout = true; controller.abort(); }, TIMEOUT_MS);
 
   try {
-    state.abortController = new AbortController();
+    let baseUrl = document.getElementById("apiUrl").value.trim();
+    baseUrl = baseUrl.endsWith("/v1") ? baseUrl : baseUrl.replace(/\/+$/, "") + "/v1";
+    const resp = await fetch(baseUrl + "/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + apiKey
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: DEFAULT_CONFIG.system_prompt },
+          { role: "user", content: prompt }
+        ],
+        stream: true
+      }),
+      signal: controller.signal
+    });
+    if (!resp.ok) {
+      const errData = await resp.json().catch(() => ({}));
+      throw new Error(errData.error?.message || "HTTP " + resp.status);
+    }
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let block = getLastAiBlock() || appendChatRaw("");
+    block.textContent = "";
+    let streamAccum = "";
+    let flushPending = false;
+    let idleTimer = null;
 
-    if (state.apiProvider === "google") {
-      const baseUrl = document.getElementById("apiUrl").value.trim().replace(/\/+$/, "");
-      // 升級：改用 streamGenerateContent 與 SSE 即時串流
-      const url = `${baseUrl}/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${apiKey}`;
-      const resp = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          tools: [{ google_search: {} }]
-        }),
-        signal: state.abortController.signal
-      });
-      
-      if (!resp.ok) {
-        const errData = await resp.json().catch(() => ({}));
-        throw new Error(errData.error?.message || "HTTP " + resp.status);
-      }
-      
-      const reader = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-        
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || !trimmed.startsWith("data: ")) continue;
-          const jsonStr = trimmed.slice(6);
-          try {
-            const chunk = JSON.parse(jsonStr);
-            const content = chunk.candidates?.[0]?.content?.parts?.[0]?.text || "";
-            appendChunk(content);
-          } catch(e) {}
-        }
-        if (state.stopRequested) {
-          reader.cancel();
-          break;
-        }
-      }
-    } else {
-      let baseUrl = document.getElementById("apiUrl").value.trim();
-      baseUrl = baseUrl.endsWith("/v1") ? baseUrl : baseUrl.replace(/\/+$/, "") + "/v1";
-      const resp = await fetch(baseUrl + "/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer " + apiKey
-        },
-        body: JSON.stringify({
-          model: model,
-          messages: [
-            { role: "system", content: DEFAULT_CONFIG.system_prompt },
-            { role: "user", content: prompt }
-          ],
-          stream: true
-        }),
-        signal: state.abortController.signal
-      });
-      
-      if (!resp.ok) {
-        const errData = await resp.json().catch(() => ({}));
-        throw new Error(errData.error?.message || "HTTP " + resp.status);
-      }
-      
-      const reader = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-        
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || !trimmed.startsWith("data: ")) continue;
-          const jsonStr = trimmed.slice(6);
-          if (jsonStr === "[DONE]") { state.stopRequested = true; break; }
-          try {
-            const chunk = JSON.parse(jsonStr);
-            const content = chunk.choices?.[0]?.delta?.content || "";
-            appendChunk(content);
-          } catch(e) {}
-        }
-        if (state.stopRequested) {
-          reader.cancel();
-          break;
-        }
+    function flushStream() {
+      if (streamAccum) { block.textContent += streamAccum; streamAccum = ""; }
+      flushPending = false;
+    }
+    function resetIdleTimer() {
+      if (idleTimer) clearTimeout(idleTimer);
+      if (!state.stopRequested) {
+        idleTimer = setTimeout(() => appendChat("\n[系統] 伺服器回應停滯（仍在等待資料）...\n", "system"), 30000);
       }
     }
 
-    // 防禦：如果串流結束但沒回傳任何內容，避免動畫一直留在畫面上
-    if (isFirstChunk && block) {
-      block.textContent = "(無回應)";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      resetIdleTimer();
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith("data: ")) continue;
+        const jsonStr = trimmed.slice(6);
+        if (jsonStr === "[DONE]") { state.stopRequested = true; break; }
+        try {
+          const chunk = JSON.parse(jsonStr);
+          const content = chunk.choices?.[0]?.delta?.content || "";
+          if (content) {
+            streamAccum += content;
+            if (!flushPending) { flushPending = true; requestAnimationFrame(flushStream); }
+          }
+        } catch(e) {}
+      }
+      if (state.stopRequested) { reader.cancel(); break; }
     }
-
-    if (state.stopRequested) {
-      appendChat("\n[已停止]\n", "system");
-    }
-    appendChat("\n" + "─".repeat(30) + "\n", "system");
+    flushStream();
+    if (idleTimer) clearTimeout(idleTimer);
+    if (state.stopRequested && !isTimeout) appendChat("\n[已停止]\n", "system");
   } catch (e) {
-    // 錯誤攔截防禦
-    const currentBlock = getLastAiBlock();
-    if (currentBlock && currentBlock.querySelector('.typing-dots')) {
-      currentBlock.innerHTML = '<span style="color:#E74C3C">❌ (無法取得回應)</span>';
-    }
-
     if (e.name === "AbortError") {
-      appendChat("\n[已停止]\n", "system");
+      appendChat(isTimeout
+        ? `\n[系統] 請求逾時（超過 ${TIMEOUT_MS/1000} 秒，模型仍在執行可調高 timeout）\n`
+        : "\n[已停止]\n", "system");
     } else {
       let msg = e.message;
-      if (msg.includes("API key not valid")) msg = "Google API 金鑰無效，請檢查您的金鑰是否正確填寫。";
+      if (msg === "Failed to fetch" || msg.includes("NetworkError")) {
+        const url = document.getElementById("apiUrl").value.trim();
+        msg = url.includes("127.0.0.1") || url.includes("localhost")
+          ? `無法連線至 ${url}，請確認 LM Studio 正在執行`
+          : `與伺服器連線中斷（建議改用本機 IP http://127.0.0.1:1234/v1 直連）`;
+      }
       appendChat(`\n[錯誤] ${msg}\n`, "system");
     }
   } finally {
+    clearTimeout(timeoutTimer);
     state.isGenerating = false;
     state.stopRequested = false;
     state.abortController = null;
     const btn = document.getElementById("sendBtn");
     btn.textContent = "🚀 傳送";
     btn.style.background = "#3498DB";
+    appendChat("\n" + "─".repeat(30) + "\n", "system");
   }
+}
+
+function preconnectToApi(url) {
+  const existing = document.querySelector("link[data-preconnect]");
+  if (existing) existing.remove();
+  const base = url.replace(/\/v1\/?$/, "").replace(/\/+$/, "");
+  const link = document.createElement("link");
+  link.rel = "preconnect";
+  link.href = base;
+  link.setAttribute("data-preconnect", "");
+  document.head.appendChild(link);
+  const dns = document.createElement("link");
+  dns.rel = "dns-prefetch";
+  dns.href = base;
+  dns.setAttribute("data-preconnect", "");
+  document.head.appendChild(dns);
 }
 
 // ---- Init ----
 async function init() {
-  const isFileProtocol = location.protocol === "file:";
-  const configData = await fetchConfigFromFile();
-  const templateData = await fetchTemplatesFromFile();
-  
-  if (isFileProtocol && (!configData || !templateData)) {
-    setTimeout(() => {
-      showToast("info", "提示：以本地檔案開啟無法自動讀取 JSON，請使用模板管理【匯入 JSON】。");
-    }, 1500);
-  }
-
+  await fetchConfigFromFile();
+  await fetchTemplatesFromFile();
   state.templates = loadTemplates();
   const config = loadConfig();
-  const providerMap = { "本地 API":"local", "遠程 API":"remote", "Google Gemini":"google" };
-  const currentProvider = providerMap[state.apiType] || "local";
-  const pc = config[currentProvider] || DEFAULT_CONFIG.local;
-  document.getElementById("apiUrl").value = pc.api_base_url;
-  document.getElementById("apiKey").value = pc.api_key;
+  document.getElementById("apiUrl").value = config.api_base_url;
+  document.getElementById("apiKey").value = config.api_key;
+  preconnectToApi(config.api_base_url);
 
   const names = Object.keys(state.templates).sort();
   const sel = document.getElementById("templateSelector");
