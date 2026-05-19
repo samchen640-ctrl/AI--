@@ -154,6 +154,10 @@ body{font-family:"Microsoft JhengHei","Segoe UI",sans-serif;height:100vh;overflo
 <button class="sidebar-btn" id="templateSaveBtn" style="background:#27AE60;flex:1">💾 儲存 / 新增</button>
 <button class="sidebar-btn" id="templateDelBtn" style="background:#E74C3C;flex:1">🗑️ 刪除</button>
 </div>
+<div style="display:flex;gap:10px;margin-bottom:10px">
+<button class="sidebar-btn" id="templateImportBtn" style="background:#F39C12;flex:1;color:#fff">📂 匯入 JSON</button>
+<button class="sidebar-btn" id="templateExportBtn" style="background:#8E44AD;flex:1;color:#fff">📤 匯出 JSON</button>
+</div>
 <span class="sidebar-label" style="color:#9B59B6;margin-top:8px">已儲存的模板</span>
 <div id="templateList"></div>
 </div>
@@ -183,15 +187,33 @@ const state = {
   abortController: null
 };
 
-async function fetchConfigFromFile() {
+function getBasePath() {
+  const scriptPath = document.currentScript?.src || location.href;
+  const idx = scriptPath.lastIndexOf("/");
+  return idx !== -1 ? scriptPath.slice(0, idx + 1) : "";
+}
+
+async function fetchJSON(file) {
+  const url = getBasePath() + file;
   try {
-    const resp = await fetch("config.json");
+    const resp = await fetch(url);
     if (resp.ok) {
       const data = await resp.json();
-      localStorage.setItem("ai_doc_config", JSON.stringify(data));
       return data;
     }
-  } catch(e) {}
+    console.warn(`[AI小助手] ${file} HTTP ${resp.status}`);
+  } catch(e) {
+    console.warn(`[AI小助手] 無法讀取 ${file} (若直接開啟HTML請用HTTP伺服器): ${e.message}`);
+  }
+  return null;
+}
+
+async function fetchConfigFromFile() {
+  const data = await fetchJSON("config.json");
+  if (data) {
+    localStorage.setItem("ai_doc_config", JSON.stringify(data));
+    return data;
+  }
   return null;
 }
 
@@ -224,14 +246,11 @@ function saveConfigToDisk() {
 }
 
 async function fetchTemplatesFromFile() {
-  try {
-    const resp = await fetch("templates.json");
-    if (resp.ok) {
-      const data = await resp.json();
-      localStorage.setItem("ai_doc_templates", JSON.stringify(data));
-      return data;
-    }
-  } catch(e) {}
+  const data = await fetchJSON("templates.json");
+  if (data) {
+    localStorage.setItem("ai_doc_templates", JSON.stringify(data));
+    return data;
+  }
   return null;
 }
 
@@ -348,6 +367,7 @@ async function handleFileSelect(fileList) {
   const pw = document.getElementById("progressWrap");
   const pb = document.getElementById("progressBar");
   pw.classList.add("active");
+  
   for (let i = 0; i < total; i++) {
     const file = fileList[i];
     pb.style.width = ((i + 1) / total * 100) + "%";
@@ -362,9 +382,10 @@ async function handleFileSelect(fileList) {
       }
       newFiles.push({ name: file.name, content, selected: true });
     } catch (e) {
-      appendChat(`\n[跳過] ${file.name}: ${e.message}\n`, "system");
+      appendChat(`\n[跳過] ${file?.name || '未知檔案'}: ${e.message}\n`, "system");
     }
   }
+  
   pw.classList.remove("active");
   state.attachedFiles.push(...newFiles);
   syncFilesToContent();
@@ -428,8 +449,16 @@ const hiddenFileInput = document.createElement("input");
 hiddenFileInput.type = "file";
 hiddenFileInput.multiple = true;
 hiddenFileInput.accept = ".txt,.md,.pdf,.py,.js,.html,.css,.*";
-hiddenFileInput.addEventListener("change", e => {
-  if (e.target.files.length) handleFileSelect(e.target.files);
+
+// 🏆 核心修正點：非同步生命週期陷阱
+hiddenFileInput.addEventListener("change", async e => {
+  if (e.target.files.length) {
+    // 1. 將 Live Collection (FileList) 轉換為靜態 Array
+    const filesArray = Array.from(e.target.files);
+    // 2. 加上 await 確保檔案處理完全結束
+    await handleFileSelect(filesArray);
+  }
+  // 3. 處理完畢後才清空 value，避免在非同步過程中銷毀了 FileList 導致後續檔案無法讀取
   e.target.value = "";
 });
 document.getElementById("fileAddBtn").addEventListener("click", () => hiddenFileInput.click());
@@ -483,6 +512,41 @@ document.getElementById("templateDelBtn").addEventListener("click", () => {
     document.getElementById("templateContent").value = "";
     showToast("info", "模板已刪除");
   }
+});
+
+// 🏆 新增：匯出 JSON 功能
+document.getElementById("templateExportBtn").addEventListener("click", () => {
+  const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state.templates, null, 2));
+  const dlAnchorElem = document.createElement('a');
+  dlAnchorElem.setAttribute("href", dataStr);
+  dlAnchorElem.setAttribute("download", "templates.json");
+  dlAnchorElem.click();
+  showToast("success", "已下載 templates.json");
+});
+
+// 🏆 新增：匯入 JSON 功能
+document.getElementById("templateImportBtn").addEventListener("click", () => {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.onchange = e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = event => {
+      try {
+        const imported = JSON.parse(event.target.result);
+        state.templates = { ...state.templates, ...imported }; // 擴充原有的模板
+        saveTemplates(state.templates);
+        renderTemplateList();
+        showToast("success", "模板匯入成功！");
+      } catch(err) {
+        showToast("error", "JSON 格式錯誤，無法解析！");
+      }
+    };
+    reader.readAsText(file);
+  };
+  input.click();
 });
 
 // ---- Template selector ----
@@ -697,8 +761,17 @@ async function processAiResponse(text) {
 
 // ---- Init ----
 async function init() {
-  await fetchConfigFromFile();
-  await fetchTemplatesFromFile();
+  const isFileProtocol = location.protocol === "file:";
+  const configData = await fetchConfigFromFile();
+  const templateData = await fetchTemplatesFromFile();
+  
+  // 💡 如果是直接點開 HTML，而且載入失敗，給予提示
+  if (isFileProtocol && (!configData || !templateData)) {
+    setTimeout(() => {
+      showToast("info", "提示：以本地檔案開啟無法自動讀取 JSON，請使用模板管理【匯入 JSON】。");
+    }, 1500);
+  }
+
   state.templates = loadTemplates();
   const config = loadConfig();
   const providerMap = { "本地 API":"local", "遠程 API":"remote", "Google Gemini":"google" };
